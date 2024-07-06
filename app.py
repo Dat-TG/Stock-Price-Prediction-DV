@@ -100,6 +100,8 @@ valid_data['Predictions']=predicted_closing_price
 
 
 df= pd.read_csv("./csvdata/full_data_processed.csv")
+df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d')
+df.set_index('Date', inplace=True)
 
 # Drop duplicate rows based on 'Bank' and 'Stock symbol' columns
 unique_df = df.drop_duplicates(subset=['Bank', 'Stock symbol'])
@@ -132,6 +134,125 @@ future_predictions = scaler.inverse_transform(future_predictions)
 future_df = pd.DataFrame({'Date': future_dates, 'Predictions': future_predictions.flatten()})
 future_df.set_index('Date', inplace=True)
 
+def SMA(df, period=50, column="Price"):
+    return df[column].rolling(window=period).mean()
+
+def EMA(df, period=50, column="Price"):
+    return df[column].ewm(span=period, adjust=False).mean()
+
+def WMA(df, period=50, column="Price"):
+    weights = np.arange(1, period + 1)
+    return df[column].rolling(window=period).apply(lambda prices: np.dot(prices, weights) / weights.sum(), raw=True)
+
+def VWMA(df, period=50, column="Price"):
+    volume = df['Vol.'] if 'Vol.' in df.columns else pd.Series(np.ones(len(df)), index=df.index)
+    return (df[column] * volume).rolling(window=period).sum() / volume.rolling(window=period).sum()
+
+# Hàm tổng hợp 4 đường MA
+def MA(df, period=30, column="Price", ma_type="SMA"):
+    if ma_type == "SMA":
+        return SMA(df, period, column)
+    elif ma_type == "EMA":
+        return EMA(df, period, column)
+    elif ma_type == "WMA":
+        return WMA(df, period, column)
+    elif ma_type == "VWMA":
+        return VWMA(df, period, column)
+    else:
+        raise ValueError("Invalid ma_type. Use 'SMA', 'EMA', 'WMA', or 'VWMA'.")
+
+def buy_n_sell(data, col='Price', bank_symbol='VCB', period1=20, period2=50, period3=200, MA_type='SMA'):
+    df = data[data['Stock symbol'] == bank_symbol]
+    name = df["Bank"].iloc[0]
+
+    df['line1'] = MA(df, period=period1, column='Price', ma_type=MA_type)
+    df['line2'] = MA(df, period=period2, column='Price', ma_type=MA_type)
+    df['line3'] = MA(df, period=period3, column='Price', ma_type=MA_type)
+
+    # Condition 1
+    df['Signal'] = np.where(df["line1"] > df["line2"], 1, 0)
+    df['Position'] = df['Signal'].diff()
+
+    df['Buy'] = np.where(df['Position'] == 1, df['Price'], np.nan)
+    df['Sell'] = np.where(df['Position'] == -1, df['Price'], np.nan)
+
+    # Condition 2
+    df['Golden_Signal'] = np.where(df["line2"] > df["line3"], 1, 0)
+    df['Golden_Position'] = df['Golden_Signal'].diff()
+
+    df['Golden_Buy'] = np.where(df['Golden_Position'] == 1, df['Price'], np.nan)
+    df['Death_Sell'] = np.where(df['Golden_Position'] == -1, df['Price'], np.nan)
+
+    # Create candlestick chart and buy/sell signals
+    fig = go.Figure()
+
+    # Candlestick
+    fig.add_trace(go.Candlestick(x=df.index,
+                                 open=df['Open'],
+                                 high=df['High'],
+                                 low=df['Low'],
+                                 close=df['Price'],
+                                 name='Price',
+                                 opacity=0.5))
+
+    # Short-term MA
+    fig.add_trace(go.Scatter(x=df.index,
+                             y=df['line1'],
+                             mode='lines',
+                             name=f'Short-term MA {period1}',
+                             line=dict(color='royalblue')))
+
+    # Medium-term MA
+    fig.add_trace(go.Scatter(x=df.index,
+                             y=df['line2'],
+                             mode='lines',
+                             name=f'Medium-term MA {period2}',
+                             line=dict(color='darkorange')))
+
+    # Long-term MA
+    fig.add_trace(go.Scatter(x=df.index,
+                             y=df['line3'],
+                             mode='lines',
+                             name=f'Long-term MA {period3}',
+                             line=dict(color='seagreen')))
+
+    # Buy Signal
+    fig.add_trace(go.Scatter(x=df.index[df['Position'] == 1],
+                             y=df['Price'][df['Position'] == 1],
+                             mode='markers',
+                             marker=dict(symbol='triangle-up', color='green', size=12),
+                             name='Buy Signal'))
+
+    # Sell Signal
+    fig.add_trace(go.Scatter(x=df.index[df['Position'] == -1],
+                             y=df['Price'][df['Position'] == -1],
+                             mode='markers',
+                             marker=dict(symbol='triangle-down', color='red', size=12),
+                             name='Sell Signal'))
+
+    # Golden Buy Signal
+    fig.add_trace(go.Scatter(x=df.index[df['Golden_Position'] == 1],
+                             y=df['Price'][df['Golden_Position'] == 1],
+                             mode='markers',
+                             marker=dict(symbol='triangle-up', color='gold', size=16),
+                             name='Golden Buy Signal',
+                             visible='legendonly'))
+
+    # Death Sell Signal
+    fig.add_trace(go.Scatter(x=df.index[df['Golden_Position'] == -1],
+                             y=df['Price'][df['Golden_Position'] == -1],
+                             mode='markers',
+                             marker=dict(symbol='triangle-down', color='maroon', size=16),
+                             name='Death Sell Signal',
+                             visible='legendonly'))
+
+    # Set layout for the chart
+    fig.update_layout(title=f'<b style="font-size: 20px;">Candlestick chart with Trading Signals for {name} Bank</b>',
+                      xaxis_title='Date',
+                      yaxis_title='Price',
+                      title_x=0.5,)
+
+    return fig
 
 app.layout = html.Div([
    
@@ -147,6 +268,47 @@ app.layout = html.Div([
     ], style={"border": "1px solid #000", "padding": "10px", "marginBottom": "50px", "textAlign": "center"}),
    
     dcc.Tabs(id="tabs", children=[
+
+        dcc.Tab(label='Trading Signals', children=[
+            html.Div([
+                dcc.Dropdown(
+                    id='bank-dropdown',
+                    options=[{'label': bank, 'value': symbol} for bank, symbol in zip(df['Bank'].unique(), df['Stock symbol'].unique())],
+                    value='VCB',
+                    style={"width": "200px", "margin": "16px auto"},
+                    clearable=False
+                ),
+                dcc.Dropdown(
+                    id='ma-type-dropdown',
+                    options=[{'label': ma, 'value': ma} for ma in ['SMA', 'EMA', 'WMA', 'VWMA']],
+                    value='SMA',
+                    style={"width": "100px", "margin": "16px auto"},
+                    clearable=False
+                ),
+                dcc.Dropdown(
+                    id='period1-dropdown',
+                    options=[{'label': str(i), 'value': i} for i in [15, 20, 30]],
+                    value=20,
+                    style={"width": "100px", "margin": "16px auto"},
+                    clearable=False
+                ),
+                dcc.Dropdown(
+                    id='period2-dropdown',
+                    options=[{'label': str(i), 'value': i} for i in [50, 80, 100]],
+                    value=50,
+                    style={"width": "100px", "margin": "16px auto"},
+                    clearable=False
+                ),
+                dcc.Dropdown(
+                    id='period3-dropdown',
+                    options=[{'label': str(i), 'value': i} for i in [120, 150, 200]],
+                    value=200,
+                    style={"width": "100px", "margin": "16px auto"},
+                    clearable=False
+                ),
+            ], style={"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "justifyContent": "center"}),
+            dcc.Graph(id='trading-signals-chart', style={"height": "100vh"})
+        ]),
        
         dcc.Tab(label='Predict Stock Price', children=[
             html.Div([
@@ -227,6 +389,25 @@ app.layout = html.Div([
                             yaxis={'title': 'Closing Rate'}
                         )
                     }
+                ),
+                html.H2("Future Predictions", style={"textAlign": "center"}),
+                dcc.Graph(
+                    id="Future Predictions",
+                    figure={
+                        "data": [
+                            go.Scatter(
+                                x=future_df.index,
+                                y=future_df["Predictions"],
+                                mode='markers',
+                                name='Future Predictions'
+                            )
+                        ],
+                        "layout": go.Layout(
+                            title='Future Predictions of Closing Price for BIDV',
+                            xaxis={'title': 'Date'},
+                            yaxis={'title': 'Closing Rate'}
+                        )
+                    }
                 )
             ])
         ]),
@@ -256,11 +437,24 @@ app.layout = html.Div([
     ])
 ])
 
+@app.callback(
+    Output('trading-signals-chart', 'figure'),
+    [Input('bank-dropdown', 'value'),
+     Input('ma-type-dropdown', 'value'),
+     Input('period1-dropdown', 'value'),
+     Input('period2-dropdown', 'value'),
+     Input('period3-dropdown', 'value')]
+)
+def update_graph(bank_symbol, ma_type, period1, period2, period3):
+    return buy_n_sell(df, col='Price', bank_symbol=bank_symbol, period1=period1, period2=period2, period3=period3, MA_type=ma_type)
+
+
 
 @app.callback(
     [Output('BTC Data', 'figure'),
      Output('Actual Data AAPL', 'figure'),
-     Output('Predicted Data AAPL', 'figure')],
+     Output('Predicted Data AAPL', 'figure'),
+     Output('Future Predictions', 'figure')],
     [Input('stock-dropdown', 'value')]
 )
 def update_graph(selected_stock):
@@ -270,15 +464,15 @@ def update_graph(selected_stock):
         return {}, {}, {}
 
     df_stock = df[df['Stock symbol'] == selected_stock]
-    df_stock['Date'] = pd.to_datetime(df_stock['Date'], format='%Y-%m-%d')
 
     # Ensure data is sorted by index if necessary
     data = df_stock.sort_index(ascending=True, axis=0)
+    data["Date"] = pd.to_datetime(data.index, format="%Y-%m-%d")
 
     new_dataset = pd.DataFrame(index=range(0, len(data)), columns=['Date', 'Close'])
 
     for i in range(0, len(data)):
-        new_dataset.loc[i, "Date"] = data.iloc[i]['Date']  # Correct assignment using iloc
+        new_dataset.loc[i, "Date"] = data.iloc[i]["Date"]  # Correct assignment using iloc
         new_dataset.loc[i, "Close"] = data.iloc[i]["Price"]
 
     new_dataset.set_index('Date', inplace=True)
@@ -320,7 +514,7 @@ def update_graph(selected_stock):
     valid_data['Predictions'] = predicted_closing_price
 
     # Make future predictions until December 2024
-    future_dates = pd.date_range(start=df_stock['Date'].max() + timedelta(days=1), end='2024-8-31', freq='B')
+    future_dates = pd.date_range(start=df_stock.index.max() + timedelta(days=1), end='2024-8-31', freq='B')
     future_predictions = []
 
     # Start with the last 60 days of data
@@ -380,6 +574,13 @@ def update_graph(selected_stock):
         name='Predicted'
     )
 
+    future_scatter_trace = go.Scatter(
+        x=future_df.index,
+        y=future_df["Predictions"],
+        mode='markers',
+        name='Future Predictions'
+    )
+
     stock_name = dropdown_dict[selected_stock]
 
     figure1 = {
@@ -411,7 +612,16 @@ def update_graph(selected_stock):
         )
     }
 
-    return figure1, figure2, figure3
+    figure4 = {
+        "data": [future_scatter_trace],
+        "layout": go.Layout(
+            title=f'Future Predictions of Closing Price for {stock_name}',
+            xaxis={'title': 'Date'},
+            yaxis={'title': 'Closing Rate'}
+        )
+    }
+
+    return figure1, figure2, figure3, figure4
 
 
 
@@ -426,12 +636,12 @@ def update_graph(selected_dropdown):
     trace2 = []
     for stock in selected_dropdown:
         trace1.append(
-          go.Scatter(x=df[df["Stock symbol"] == stock]["Date"],
+          go.Scatter(x=df[df["Stock symbol"] == stock].index,
                      y=df[df["Stock symbol"] == stock]["High"],
                      mode='lines', opacity=0.7, 
                      name=f'High {dropdown[stock]}',textposition='bottom center'))
         trace2.append(
-          go.Scatter(x=df[df["Stock symbol"] == stock]["Date"],
+          go.Scatter(x=df[df["Stock symbol"] == stock].index,
                      y=df[df["Stock symbol"] == stock]["Low"],
                      mode='lines', opacity=0.6,
                      name=f'Low {dropdown[stock]}',textposition='bottom center'))
@@ -462,7 +672,7 @@ def update_graph(selected_dropdown_value):
     trace1 = []
     for stock in selected_dropdown_value:
         trace1.append(
-          go.Scatter(x=df[df["Stock symbol"] == stock]["Date"],
+          go.Scatter(x=df[df["Stock symbol"] == stock].index,
                      y=df[df["Stock symbol"] == stock]["Vol."],
                      mode='lines', opacity=0.7,
                      name=f'Volume {dropdown[stock]}', textposition='bottom center'))
