@@ -22,6 +22,7 @@
 #     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
+from datetime import timedelta
 import dash
 from dash import dcc
 from dash import html
@@ -42,6 +43,8 @@ scaler=MinMaxScaler(feature_range=(0,1))
 
 
 df_nse = pd.read_csv("./csvdata/BID.csv")
+df_nse["Date"]=pd.to_datetime(df_nse.Date,format="%Y-%m-%d")
+df_nse.index=df_nse['Date']
 
 data=df_nse.sort_index(ascending=True,axis=0)
 new_dataset=pd.DataFrame(index=range(0,len(df_nse)),columns=['Date','Close'])
@@ -73,7 +76,9 @@ x_train_data,y_train_data=np.array(x_train_data),np.array(y_train_data)
 x_train_data=np.reshape(x_train_data,(x_train_data.shape[0],x_train_data.shape[1],1))
 
 
-model = load_model("saved_model.keras")
+model = load_model("saved_model.keras", compile=False)
+model.compile(optimizer='adam', loss='mean_squared_error')
+
 
 inputs_data=new_dataset[len(new_dataset)-len(valid_data)-60:].values
 inputs_data=inputs_data.reshape(-1,1)
@@ -104,6 +109,29 @@ stock_list = [{'label': bank, 'value': symbol} for bank, symbol in zip(unique_df
 
 # Create the dropdown dictionary for easy lookup
 dropdown_dict = {row['Stock symbol']: row['Bank'] for index, row in unique_df.iterrows()}
+
+# Make future predictions until December 2024
+future_dates = pd.date_range(start=df_nse['Date'].max() + timedelta(days=1), end='2024-8-31', freq='B')
+future_predictions = []
+
+# Start with the last 60 days of data
+last_60_days = scaled_data[-60:].reshape(1, 60, 1)
+
+for date in future_dates:
+    predicted_price = model.predict(last_60_days)
+    future_predictions.append(predicted_price[0, 0])
+    # Add the predicted price to the input data and maintain the shape
+    predicted_price_reshaped = predicted_price.reshape(1, 1, 1)
+    last_60_days = np.append(last_60_days[:, 1:, :], predicted_price_reshaped, axis=1)
+
+# Inverse transform the predictions to get actual prices
+future_predictions = np.array(future_predictions).reshape(-1, 1)
+future_predictions = scaler.inverse_transform(future_predictions)
+
+# Create a DataFrame for future predictions
+future_df = pd.DataFrame({'Date': future_dates, 'Predictions': future_predictions.flatten()})
+future_df.set_index('Date', inplace=True)
+
 
 app.layout = html.Div([
    
@@ -144,6 +172,13 @@ app.layout = html.Div([
                                 mode='lines+markers',
                                 name='Predicted',
                                 line=dict(color='red')
+                            ),
+                            go.Scatter(
+                                x=future_df.index,
+                                y=future_df["Predictions"],
+                                mode='lines+markers',
+                                name='Future Predictions',
+                                line=dict(color='green')
                             )
                         ],
                         "layout": go.Layout(
@@ -235,6 +270,7 @@ def update_graph(selected_stock):
         return {}, {}, {}
 
     df_stock = df[df['Stock symbol'] == selected_stock]
+    df_stock['Date'] = pd.to_datetime(df_stock['Date'], format='%Y-%m-%d')
 
     # Ensure data is sorted by index if necessary
     data = df_stock.sort_index(ascending=True, axis=0)
@@ -266,8 +302,6 @@ def update_graph(selected_stock):
 
     x_train_data = np.reshape(x_train_data, (x_train_data.shape[0], x_train_data.shape[1], 1))
 
-    model = load_model("saved_model.keras")
-
     inputs_data = new_dataset[len(new_dataset) - len(valid_data) - 60:].values
     inputs_data = inputs_data.reshape(-1, 1)
     inputs_data = scaler.transform(inputs_data)
@@ -285,6 +319,29 @@ def update_graph(selected_stock):
     valid_data = new_dataset[train_size:]
     valid_data['Predictions'] = predicted_closing_price
 
+    # Make future predictions until December 2024
+    future_dates = pd.date_range(start=df_stock['Date'].max() + timedelta(days=1), end='2024-8-31', freq='B')
+    future_predictions = []
+
+    # Start with the last 60 days of data
+    last_60_days = scaled_data[-60:].reshape(1, 60, 1)
+
+    for date in future_dates:
+        predicted_price = model.predict(last_60_days)
+        future_predictions.append(predicted_price[0, 0])
+        # Add the predicted price to the input data and maintain the shape
+        predicted_price_reshaped = predicted_price.reshape(1, 1, 1)
+        last_60_days = np.append(last_60_days[:, 1:, :], predicted_price_reshaped, axis=1)
+
+    # Inverse transform the predictions to get actual prices
+    future_predictions = np.array(future_predictions).reshape(-1, 1)
+    future_predictions = scaler.inverse_transform(future_predictions)
+
+    # Create a DataFrame for future predictions
+    future_df = pd.DataFrame({'Date': future_dates, 'Predictions': future_predictions.flatten()})
+    future_df.set_index('Date', inplace=True)
+
+
     actual_trace = go.Scatter(
         x=valid_data.index,
         y=valid_data["Close"],
@@ -299,6 +356,14 @@ def update_graph(selected_stock):
         mode='lines+markers',
         name='Predicted',
         line=dict(color='red')
+    )
+
+    future_trace = go.Scatter(
+        x=future_df.index,
+        y=future_df["Predictions"],
+        mode='lines+markers',
+        name='Future Predictions',
+        line=dict(color='green')
     )
 
     actual_scatter_trace = go.Scatter(
@@ -318,7 +383,7 @@ def update_graph(selected_stock):
     stock_name = dropdown_dict[selected_stock]
 
     figure1 = {
-        "data": [actual_trace, predicted_trace],
+        "data": [actual_trace, predicted_trace, future_trace],
         "layout": go.Layout(
             title=f'Actual vs Predicted Closing Prices for {stock_name}',
             xaxis={'title': 'Date'},
