@@ -13,7 +13,15 @@ The Stock Prediction App is a web application built using Plotly Dash and powere
 
 ## Installation
 
+### Requirements
+
+Python 3.12
+
 To run the Stock Prediction App locally, follow these steps:
+
+### Using `venv` (Virtual Environment)
+
+#### For Windows:
 
 1. Clone the repository:
 
@@ -22,19 +30,66 @@ To run the Stock Prediction App locally, follow these steps:
    cd Stock-Price-Prediction-DV
    ```
 
-2. Install dependencies:
+2. Create a virtual environment:
+
+   ```bash
+   python -m venv venv
+   ```
+
+3. Activate the virtual environment:
+
+   ```bash
+   .\venv\Scripts\activate
+   ```
+
+4. Install dependencies:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Run the application:
+5. Run the application:
 
    ```bash
    python app.py
    ```
 
-4. Open a web browser and go to `http://localhost:8050` to view the application.
+6. Open a web browser and go to `http://localhost:8050` to view the application.
+
+#### For Linux:
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/Dat-TG/Stock-Price-Prediction-DV.git
+   cd Stock-Price-Prediction-DV
+   ```
+
+2. Create a virtual environment:
+
+   ```bash
+   python3 -m venv venv
+   ```
+
+3. Activate the virtual environment:
+
+   ```bash
+   source venv/bin/activate
+   ```
+
+4. Install dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+5. Run the application:
+
+   ```bash
+   python app.py
+   ```
+
+6. Open a web browser and go to `http://localhost:8050` to view the application.
 
 ## Usage
 

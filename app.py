@@ -24,6 +24,7 @@
 
 from datetime import timedelta
 import dash
+from dash import State
 from dash import dcc
 from dash import html
 import pandas as pd
@@ -32,10 +33,25 @@ from dash.dependencies import Input, Output
 from keras.models import load_model # type: ignore
 from sklearn.preprocessing import MinMaxScaler
 import numpy as np
+import dash_bootstrap_components as dbc
+
+####################### LAYOUT #############################
+external_css = ["https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css", ]
+
+modal_body = html.Div([
+    html.Div([html.Img(src="assets/g23.png", width=250, className="rounded-circle mx-auto d-flex img-thumbnail border border-5 border-dark")],),
+    html.Br(),
+    html.P("20120454 - Lê Công Đắt"),
+    html.P("21120279 - Lê Trần Minh Khuê"),
+    html.P("21120290 - Hoàng Trung Nam"),
+    html.P("21120296 - Lê Trần Như Ngọc"),
+    html.P("21120533 - Lê Thị Minh Phương"),
+],)
 
 
-app = dash.Dash()
-app.title = "Stock Price Analysis Dashboard - LCD"
+
+app = dash.Dash(external_stylesheets=external_css)
+app.title = "Group 23 - Analysis of stock prices of the top 6 banks with the largest brand value in Vietnam"
 server = app.server
 
 scaler=MinMaxScaler(feature_range=(0,1))
@@ -256,16 +272,18 @@ def buy_n_sell(data, col='Price', bank_symbol='VCB', period1=20, period2=50, per
 
 app.layout = html.Div([
    
-    html.H1("Stock Price Analysis Dashboard", style={"textAlign": "center"}),
+    html.H1("Stock Price Analysis Dashboard of the Top 6 Banks with the Highest Brand Value in Vietnam", style={"textAlign": "center"}),
 
     html.Div([
-        html.P([html.B("Developed by: "), "Group 23"]),
-        html.P("20120454 - Lê Công Đắt"),
-        html.P("21120279 - Lê Trần Minh Khuê"),
-        html.P("21120290 - Hoàng Trung Nam"),
-        html.P("21120296 - Lê Trần Như Ngọc"),
-        html.P("21120533 - Lê Thị Minh Phương"),
-    ], style={"border": "1px solid #000", "padding": "10px", "marginBottom": "50px", "textAlign": "center"}),
+    "Dashboard Designed By :  ", dbc.Button("Group 23", id="open", n_clicks=0),
+    dbc.Modal([
+                dbc.ModalHeader(dbc.ModalTitle("Group 23"),),
+                dbc.ModalBody([modal_body]),
+                dbc.ModalFooter(dbc.Button("Close", id="close", className="ms-auto", n_clicks=0),),
+            ],
+            id="modal",
+            is_open=False,
+    ),], style={"marginBottom": "20px"}),
    
     dcc.Tabs(id="tabs", children=[
 
@@ -316,7 +334,7 @@ app.layout = html.Div([
                              options=stock_list,
                              value='BID',
                              style={"width": "50%", "margin": "16px auto"}),
-                html.H2("Actual vs Predicted Closing Prices", style={"textAlign": "center"}),
+                html.H2("Actual vs LSTM Predicted Closing Prices", style={"textAlign": "center"}),
                 dcc.Graph(
                     id="BTC Data",
                     figure={
@@ -332,7 +350,7 @@ app.layout = html.Div([
                                 x=valid_data.index,
                                 y=valid_data["Predictions"],
                                 mode='lines+markers',
-                                name='Predicted',
+                                name='Predicted in Validation Set',
                                 line=dict(color='red')
                             ),
                             go.Scatter(
@@ -352,66 +370,9 @@ app.layout = html.Div([
                         )
                     }
                 ),
-                html.H2("Actual closing price", style={"textAlign": "center"}),
-                dcc.Graph(
-                    id="Actual Data AAPL",
-                    figure={
-                        "data": [
-                            go.Scatter(
-                                x=valid_data.index,
-                                y=valid_data["Close"],
-                                mode='markers',
-                                name='Actual'
-                            )
-                        ],
-                        "layout": go.Layout(
-                            title='Scatter plot of Actual Closing Price for BIDV',
-                            xaxis={'title': 'Date'},
-                            yaxis={'title': 'Closing Rate'}
-                        )
-                    }
-                ),
-                html.H2("LSTM Predicted closing price", style={"textAlign": "center"}),
-                dcc.Graph(
-                    id="Predicted Data AAPL",
-                    figure={
-                        "data": [
-                            go.Scatter(
-                                x=valid_data.index,
-                                y=valid_data["Predictions"],
-                                mode='markers',
-                                name='Predicted'
-                            )
-                        ],
-                        "layout": go.Layout(
-                            title='Scatter plot of Predicted Closing Price for BIDV',
-                            xaxis={'title': 'Date'},
-                            yaxis={'title': 'Closing Rate'}
-                        )
-                    }
-                ),
-                html.H2("Future Predictions", style={"textAlign": "center"}),
-                dcc.Graph(
-                    id="Future Predictions",
-                    figure={
-                        "data": [
-                            go.Scatter(
-                                x=future_df.index,
-                                y=future_df["Predictions"],
-                                mode='markers',
-                                name='Future Predictions'
-                            )
-                        ],
-                        "layout": go.Layout(
-                            title='Future Predictions of Closing Price for BIDV',
-                            xaxis={'title': 'Date'},
-                            yaxis={'title': 'Closing Rate'}
-                        )
-                    }
-                )
             ])
         ]),
-        dcc.Tab(label='Comparison between stocks', children=[
+        dcc.Tab(label='Stock Comparison', children=[
             html.Div([
                 html.H1("Stocks High vs Lows", 
                         style={'textAlign': 'center'}),
@@ -435,7 +396,7 @@ app.layout = html.Div([
 
 
     ])
-])
+], style={"padding": "20px"})
 
 @app.callback(
     Output('trading-signals-chart', 'figure'),
@@ -451,10 +412,7 @@ def update_graph(bank_symbol, ma_type, period1, period2, period3):
 
 
 @app.callback(
-    [Output('BTC Data', 'figure'),
-     Output('Actual Data AAPL', 'figure'),
-     Output('Predicted Data AAPL', 'figure'),
-     Output('Future Predictions', 'figure')],
+    Output('BTC Data', 'figure'),
     [Input('stock-dropdown', 'value')]
 )
 def update_graph(selected_stock):
@@ -548,7 +506,7 @@ def update_graph(selected_stock):
         x=valid_data.index,
         y=valid_data["Predictions"],
         mode='lines+markers',
-        name='Predicted',
+        name='Predicted in Validation Set',
         line=dict(color='red')
     )
 
@@ -558,27 +516,6 @@ def update_graph(selected_stock):
         mode='lines+markers',
         name='Future Predictions',
         line=dict(color='green')
-    )
-
-    actual_scatter_trace = go.Scatter(
-        x=valid_data.index,
-        y=valid_data["Close"],
-        mode='markers',
-        name='Actual'
-    )
-
-    predicted_scatter_trace = go.Scatter(
-        x=valid_data.index,
-        y=valid_data["Predictions"],
-        mode='markers',
-        name='Predicted'
-    )
-
-    future_scatter_trace = go.Scatter(
-        x=future_df.index,
-        y=future_df["Predictions"],
-        mode='markers',
-        name='Future Predictions'
     )
 
     stock_name = dropdown_dict[selected_stock]
@@ -594,34 +531,7 @@ def update_graph(selected_stock):
         )
     }
 
-    figure2 = {
-        "data": [actual_scatter_trace],
-        "layout": go.Layout(
-            title=f'Scatter plot of Actual Closing Price for {stock_name}',
-            xaxis={'title': 'Date'},
-            yaxis={'title': 'Closing Rate'}
-        )
-    }
-
-    figure3 = {
-        "data": [predicted_scatter_trace],
-        "layout": go.Layout(
-            title=f'Scatter plot of Predicted Closing Price for {stock_name}',
-            xaxis={'title': 'Date'},
-            yaxis={'title': 'Closing Rate'}
-        )
-    }
-
-    figure4 = {
-        "data": [future_scatter_trace],
-        "layout": go.Layout(
-            title=f'Future Predictions of Closing Price for {stock_name}',
-            xaxis={'title': 'Date'},
-            yaxis={'title': 'Closing Rate'}
-        )
-    }
-
-    return figure1, figure2, figure3, figure4
+    return figure1
 
 
 
@@ -694,6 +604,12 @@ def update_graph(selected_dropdown_value):
                    'rangeslider': {'visible': True}, 'type': 'date'},
              yaxis={"title":"Transactions Volume"})}
     return figure
+
+@app.callback(Output("modal", "is_open"), [Input("open", "n_clicks"), Input("close", "n_clicks")], [State("modal", "is_open")])
+def toggle_modal(n1, n2, is_open):
+    if n1 or n2:
+        return not is_open
+    return is_open
 
 
 
